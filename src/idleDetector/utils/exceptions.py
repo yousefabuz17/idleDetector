@@ -1,0 +1,2 @@
+class MachineNotSupported(Exception):
+    pass
