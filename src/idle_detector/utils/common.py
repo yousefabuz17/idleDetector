@@ -6,7 +6,7 @@ PathLike = Union[str, _PathLike]
 DEFAULT_SLEEP_START_TIME = 120
 
 
-def type_name(obj) -> str:
+def type_name(obj: object) -> str:
     if not isinstance(obj, type):
         obj = type(obj)
 
@@ -22,3 +22,7 @@ def regex_compiler(pattern: str):
 
 def regex_search(pattern: str, string: str):
     return regex_compiler(pattern).search(string)
+
+
+def encode_message(message: str = ""):
+    return message.encode("utf-8")

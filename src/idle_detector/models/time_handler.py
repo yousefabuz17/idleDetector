@@ -1,34 +1,7 @@
 from dataclasses import dataclass
 from datetime import timedelta
-from enum import IntEnum
 
-
-class TimeTypes(IntEnum):
-    DAYS = 86400
-    HOURS = 3600
-    MINUTES = 60
-    SECONDS = 1
-
-    def divmod(self, seconds):
-        return divmod(seconds, self.value)
-
-    def compact_name(self):
-        return self.name.lower()[0]
-
-    def format_time_value(self, value, compact_name: bool = True, title_case=False):
-        if not compact_name:
-            name = self.name
-            sep = " "
-        else:
-            name = self.compact_name()
-            sep = ""
-
-        name = name.title() if title_case else name.lower()
-
-        if value == 1:
-            name = name.removesuffix("s")
-
-        return "{}{}{}".format(value, sep, name)
+from ._dataclasses import TimeTypes
 
 
 @dataclass(

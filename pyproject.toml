@@ -8,7 +8,7 @@ version = "0.0.1"
 authors = [
 { name = "Yousef Abuzahrieh", email = "[yousefzahrieh17@gmail.com](mailto:yousefzahrieh17@gmail.com)" }
 ]
-description = "IdleDetector is a Python library and CLI for monitoring user activity and detecting idle time across systems."
+description = "IdleDetector is a macOS-only Python library and CLI for monitoring user idle time and sending stage alerts via terminal-notifier."
 requires-python = ">=3.13"
 readme = "README.md"
 license = { file = "LICENSE" }
