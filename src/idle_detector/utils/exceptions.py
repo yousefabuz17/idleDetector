@@ -4,3 +4,7 @@ class MachineNotSupported(Exception):
 
 class MissingPackage(Exception):
     pass
+
+
+class UndetectableIdleState(Exception):
+    pass

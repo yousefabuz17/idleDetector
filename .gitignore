@@ -12,7 +12,7 @@ build/
 .venv/
 .uv/
 
-# macOS
+# MacOS
 .DS_Store
 
 # Cache

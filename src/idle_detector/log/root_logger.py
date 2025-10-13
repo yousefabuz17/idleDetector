@@ -2,7 +2,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from ..models.machine import macOS
+from ..models.machine import MacOS
 from ..utils.common import PathLike
 from ..utils.os_modules import rename, rm_file
 
@@ -10,7 +10,14 @@ Logger = logging.Logger
 
 
 class RotateLogHandler(RotatingFileHandler):
+    """Custom rotating log handler with controlled suffix logic."""
+
     def rotation_filename(self, default_name: PathLike):
+        """
+        Returns the proper rotated filename for a given log file path.
+        Ensures numeric suffix ordering and consistent `.log` extension.
+        """
+
         def clean_suffix(suffix):
             return suffix.removeprefix(".")
 
@@ -36,7 +43,8 @@ class RotateLogHandler(RotatingFileHandler):
 
     def doRollover(self):
         """
-        Do a rollover, as described in __init__().
+        Performs rollover as in the base `RotatingFileHandler`,
+        but with consistent cleanup and naming logic.
         """
 
         # Copied and modified code from `RotatingFileHandler.doRollover`
@@ -65,7 +73,14 @@ class RotateLogHandler(RotatingFileHandler):
 
 
 def get_logger():
-    DEFAULT_LOG_FILE = macOS("idleDetector.log", ensure_exists=True)
+    """
+    Returns a preconfigured rotating logger for macOS environments.
+    Creates and writes to `idleDetector.log` in the user log directory.
+    """
+    mac_machine = MacOS("idleDetector.log", ensure_exists=True)
+    mac_machine.check_machine()
+
+    DEFAULT_LOG_FILE = mac_machine.user_log_dir
     MAX_LOG_SIZE = 5_000_000  # 5 MB
     MAX_LOG_FILES = 5
 

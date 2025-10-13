@@ -4,22 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "idle_detector"
-version = "0.0.1"
+version = "0.0.2"
 authors = [
-{ name = "Yousef Abuzahrieh", email = "[yousefzahrieh17@gmail.com](mailto:yousefzahrieh17@gmail.com)" }
+    { name = "Yousef Abuzahrieh", email = "yousefzahrieh17@gmail.com" }
 ]
-description = "IdleDetector is a macOS-only Python library and CLI for monitoring user idle time and sending stage alerts via terminal-notifier."
+description = "IdleDetector is a MacOS-only Python library and CLI for monitoring user idle time and sending stage alerts via terminal-notifier."
 requires-python = ">=3.13"
 readme = "README.md"
 license = { file = "LICENSE" }
 classifiers = [
-"Intended Audience :: Developers",
-"License :: OSI Approved :: Apache Software License",
-"Operating System :: OS Independent",
-"Programming Language :: Python :: 3",
-"Programming Language :: Python :: 3 :: Only",
-"Topic :: Utilities",
-"Topic :: System :: Monitoring"
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Utilities",
+    "Topic :: System :: Monitoring"
 ]
 
 dependencies = [
@@ -34,8 +34,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "[https://github.com/yousefabuz17/idleDetector](https://github.com/yousefabuz17/idleDetector)"
-Download = "[https://github.com/yousefabuz17/idleDetector.git](https://github.com/yousefabuz17/idleDetector.git)"
+Homepage = "https://github.com/yousefabuz17/idleDetector"
+Download = "https://github.com/yousefabuz17/idleDetector.git"
 
 [project.scripts]
 idle-detector = "idle_detector.cli:cli_parser"
