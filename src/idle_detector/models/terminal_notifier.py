@@ -4,24 +4,25 @@ from pathlib import Path
 
 from dateutil.parser import parse as date_parser
 
-from ..utils.common import encode_message, regex_search
+from ..utils.common import compare_versions, encode_message, run_async_process
 from ..utils.exceptions import MissingPackage
 from ..utils.os_modules import (
     add_executable_permissions,
     find_package,
     get_project_path,
     is_executable,
-    run_process,
 )
 from ._dataclasses import GroupTypes, NotifierFlags, SerializedNamespace
 
 
 class TerminalNotifier:
     CURRENT_VERSION = (2, 0, 0)
+    MINIMUM_COMPATIBLE_VERSION = (1, 8, 0)
     PACKAGE_NAME = "terminal-notifier"
-    TEST_MESSAGE = "This is a test notification from idle-detector."
 
-    def check_notifier(self):
+    group_types: GroupTypes = GroupTypes
+
+    async def check_notifier(self):
         tn_bin = self.terminal_notifier_bin
 
         if not tn_bin:
@@ -38,40 +39,43 @@ class TerminalNotifier:
                 f"The {tn_bin} binary is not executable. Please check its permissions."
             )
 
-    def notify(self, message=None, **kwargs):
-        msg_command = (
-            NotifierFlags.MESSAGE.flag,
-            encode_message(message or self.TEST_MESSAGE),
-        )
+        tn_version = await self.version
+        tn_version_tuple = tuple(int(v) for v in tn_version.split("."))
+        await compare_versions(self, tn_version_tuple)
+
+    async def notify(self, **terminal_notifier_kwargs):
+        test_message = "This is a test notification from idle-detector."
+        message = terminal_notifier_kwargs.pop("message", test_message)
+        msg_command = (NotifierFlags.MESSAGE.flag, encode_message(message))
         arg_commands = (
+            # --flag <value>
             (NotifierFlags[k.upper()].flag, str(v))
-            for k, v in kwargs.items()
+            for k, v in terminal_notifier_kwargs.items()
             if NotifierFlags.is_flag_available(k)
         )
         full_command = chain.from_iterable((msg_command, *arg_commands))
-        self.execute_command(full_command)
 
-    def execute_command(self, cmd):
-        cmd = (self.terminal_notifier_bin, *cmd)
-        return run_process(cmd)
+        await self.execute_command(full_command)
 
-    def clear_notifications_by_stage(self, *, group_type: GroupTypes | str):
-        if isinstance(group_type, GroupTypes):
-            group_type = group_type.value
-        return self.execute_command(["-remove", group_type])
+    async def execute_command(self, cmd):
+        tn_cmd = (self.terminal_notifier_bin, *cmd)
+        return await run_async_process(tn_cmd)
 
-    def clear_all_notifications(self):
-        return self.clear_notifications_by_stage(group_type="ALL")
+    async def clear_notifications_by_group(self, *, group_type: GroupTypes):
+        await self.execute_command(["-remove", group_type])
 
-    def list_notifications(self):
-        process = self.execute_command([NotifierFlags.LIST.flag, "ALL"])
+    async def clear_all_notifications(self):
+        await self.clear_notifications_by_group(group_type="ALL")
+
+    async def list_notifications(self):
+        process = await self.execute_command([NotifierFlags.LIST.flag, "ALL"])
 
         header_field_names = ("group", "title", "subtitle", "message", "delivered_at")
         notifications = []
 
         for line in process.stdout.splitlines()[1:]:
             line = line.split("\t")
-            notifications.append(dict(zip(header_field_names, line, strict=False)))
+            notifications.append(dict(zip(header_field_names, line)))
 
             try:
                 notifications[-1]["delivered_at"] = date_parser(
@@ -82,18 +86,16 @@ class TerminalNotifier:
 
         return notifications
 
-    def count_notifications(self):
-        return len(self.list_notifications())
+    async def count_notifications(self):
+        all_notifications = await self.list_notifications()
+        return len(all_notifications)
 
     @cached_property
-    def version(self):
-        process = self.execute_command(["-version"])
-        tn_version = regex_search(r"(\d\.?){1,3}", process.stdout)
-        if tn_version:
-            tn_version = tn_version.group().rstrip(".")
-        else:
-            tn_version = ".".join(self.CURRENT_VERSION)
-        return tn_version
+    async def version(self):
+        process = await self.execute_command(["-version"])
+        # output: terminal-notifier <version>.
+        tn_version = process.stdout.split()
+        return tn_version[1].rstrip(".")
 
     @cached_property
     def content_images(self):

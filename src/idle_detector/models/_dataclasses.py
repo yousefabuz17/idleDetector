@@ -1,11 +1,11 @@
-from dataclasses import MISSING, asdict, dataclass, is_dataclass
+from dataclasses import MISSING, asdict, is_dataclass
 from decimal import Decimal
 from enum import IntEnum, StrEnum, auto
-from functools import total_ordering
+from functools import lru_cache, total_ordering
 from operator import add, mul, sub
 from types import SimpleNamespace
 
-from ..utils.common import to_seconds, type_name
+from ..utils.common import NULL_INFINITY, reverse_sort, to_seconds, type_name
 
 
 class Serializable:
@@ -140,7 +140,7 @@ class GroupTypes(StrEnum):
     Members:
         - IDLE: Notifications related to user idle or inactivity states.
         - SLEEP_TIME: Notifications related to system or user sleep schedules.
-        - DISPLAY_OFF: Notifications triggered when the display turns off or is about to.
+        - DISPLAY_OFF_WARNING: Notifications triggered as a warning before the display turns off.
         - WAKE_UP: Notifications related to wake-up or resumed activity events.
 
     Designed for:
@@ -150,8 +150,15 @@ class GroupTypes(StrEnum):
 
     IDLE = auto()
     SLEEP_TIME = auto()
-    DISPLAY_OFF = auto()
+    DISPLAY_OFF_WARNING = auto()
     WAKE_UP = auto()
+
+    def content_image_by_group(self, content_images: SerializedNamespace):
+        return (
+            content_images.wakeup_image
+            if self is GroupTypes.WAKE_UP
+            else content_images.idle_image
+        )
 
 
 class NotifierFlags(StrEnum):
@@ -197,9 +204,9 @@ class NotifierFlags(StrEnum):
     SENDER = auto()
     OPEN = auto()
     EXECUTE = auto()
-    APPICON = "appIcon"
+    APP_ICON = "appIcon"
     CONTENTIMAGE = "contentImage"
-    IGNOREDND = "ignoreDND"
+    IGNOREDND = "ignoreDnD"
 
     @classmethod
     def is_flag_available(cls, flag: str):
@@ -256,7 +263,7 @@ class TimeTypes(IntEnum):
     def compact_name(self):
         return self.name.lower()[0]
 
-    def format_time_value(self, value, compact_name: bool = True, title_case=False):
+    def format_time_value(self, value, compact_name: bool = False, title_case=False):
         if not compact_name:
             name = self.name
             sep = " "
@@ -296,14 +303,14 @@ class idleStages(StrEnum):
         - StageLevels (IntEnum):
             Numeric representations (0–7) corresponding to each stage, enabling direct
             ordering and comparison of idle progression.
-        - StagesNotified (dataclass):
-            Tracks notification status (True/False) for each idle stage. Supports toggling
-            and indexed access by stage enumeration.
+        - StageNotified (dataclass):
+            Tracks notification status (True/False) for each idle stage (if-applicable).
+            Supports toggling and indexed access by stage enumeration.
 
     Comparison Behavior:
         Instances of `idleStages` can be compared directly based on their StageLevel values.
-        Supports ordering operations (`<`, `>`, `==`) and allows built-ins like `max()` and
-        `sorted()` to operate logically by stage order.
+        Supports ordering operations (`<`, `>`, `==`) and `sorted()`
+        to operate logically by stage order.
 
     Core Utility Methods:
         - threshold(reference_seconds): Compute time thresholds per stage relative to a base interval.
@@ -345,35 +352,36 @@ class idleStages(StrEnum):
         DISPLAY_OFF = auto()
         WAKE_UP = auto()
 
-    @dataclass(
-        eq=False,
-        match_args=False,
-        unsafe_hash=True,
-        slots=True,
-        weakref_slot=True,
-    )
-    class StagesNotified(Serializable):
+    class StageNotified(SerializedNamespace):
         """Track notification status for each idle stage."""
 
-        USER_ACTIVE = False
-        USER_IDLE = False
-        HALFWAY_TO_SCREENSAVER = False
-        THREE_QUARTERS_TO_SCREENSAVER = False
-        SCREENSAVER = False
-        DISPLAY_OFF_WARNING = False
-        DISPLAY_OFF = False
-        WAKE_UP = False
-
         def __getitem__(self, value: "idleStages"):
-            return getattr(self, value.name)
+            return getattr(self, value.value)
+
+        def get_stage(self, stage: "idleStages", *, override_self=None):
+            self = override_self or self
+            return getattr(self, stage.value)
 
         def toggle_notified_status(self, stage: "idleStages"):
-            current_value = getattr(self, stage.name)
-            setattr(self, stage.name, not current_value)
-            return getattr(self, stage.name)
+            current_value = self.get_stage(stage)
+            setattr(self, stage.value, not current_value)
+            return self.get_stage(stage, override_self=self)
 
-    def max(self, iterable_of_stages):
-        return max(iterable_of_stages, key=lambda s: s.stage_level())
+        def stage_was_notified(self, stage: "idleStages"):
+            return self.get_stage(stage) is True
+
+        @staticmethod
+        def compatible_stages(cls: "idleStages"):
+            return [
+                cls.HALFWAY_TO_SCREENSAVER,
+                cls.THREE_QUARTERS_TO_SCREENSAVER,
+                cls.SCREENSAVER,
+                cls.DISPLAY_OFF_WARNING,
+                cls.WAKE_UP,
+            ]
+
+    def __hash__(self):
+        return hash(str(self))
 
     def __eq__(self, value):
         if not isinstance(value, idleStages):
@@ -410,9 +418,8 @@ class idleStages(StrEnum):
         Returns:
             Decimal: Calculated threshold in seconds for the current stage.
         """
-        seconds = to_seconds(reference_seconds)
-        if seconds is None:
-            seconds = Decimal(float("inf"))
+        seconds = to_seconds(reference_seconds) or NULL_INFINITY
+
         match self:
             case idleStages.HALFWAY_TO_SCREENSAVER:
                 op_method = mul
@@ -420,6 +427,9 @@ class idleStages(StrEnum):
             case idleStages.THREE_QUARTERS_TO_SCREENSAVER:
                 op_method = mul
                 threshold = 0.75
+            case idleStages.SCREENSAVER:
+                op_method = sub
+                threshold = 5
             case idleStages.DISPLAY_OFF_WARNING:
                 op_method = sub
                 threshold = 15 if seconds <= TimeTypes.MINUTES else 45
@@ -427,39 +437,61 @@ class idleStages(StrEnum):
                 op_method = add
                 threshold = 0
 
-        op_args = sorted([seconds, Decimal(threshold)])
+        op_args = reverse_sort([seconds, Decimal(threshold)])
         return abs(op_method(*op_args)) if op_method else threshold
+
+    def get_stage_type(self, group_ids: bool = False):
+        stages = self.stages_compatible_for_alerts()
+
+        if group_ids:
+            stage_values = (GroupTypes.IDLE, *GroupTypes)
+        else:
+            stage_values = (
+                "SleepTime Half-way Mark",
+                "SleepTime Third-way Mark",
+                "SleepTime Final Mark Reached",
+                "🚨 Display-Off Warning 🚨",
+                "Machine is Awake 🌞",
+            )
+        merged_values = zip(stages, stage_values)
+        return next((v for s, v in merged_values if self is s), GroupTypes.IDLE)
 
     def stage_name(self):
         """Human-readable stage name."""
-        names = {
-            idleStages.USER_ACTIVE: "User Active",
-            idleStages.HALFWAY_TO_SCREENSAVER: "Half-way to Screensaver",
-            idleStages.THREE_QUARTERS_TO_SCREENSAVER: "Three-quarters to Screensaver",
-            idleStages.SCREENSAVER: "Screensaver Time",
-            idleStages.DISPLAY_OFF_WARNING: "Display Off Warning",
-            idleStages.DISPLAY_OFF: "Display Off",
-        }
-        return names.get(self, self.value.replace("_", " ").title())
+        return self.get_stage_type()
+
+    def stage_group_id(self):
+        return self.get_stage_type(group_ids=True)
 
     def stage_level(self):
         """Numeric level indicating the order of stages."""
         return self.StageLevels[self.name]
 
-    def message_template(self):
-        pass
-
     @classmethod
     def sort_stages(self, iterable_of_stages):
         return sorted(iterable_of_stages, key=lambda s: s.stage_level())
 
-    @classmethod
-    def is_display_off_stage(cls, idle_stage):
-        return idle_stage in cls.display_off_only_stages()
+    def is_display_off_stage(self):
+        return self in self.display_off_only_stages()
+
+    def is_screensaver_stage(self):
+        return self in self.screensaver_mode_stages()
+
+    def is_alert_stage(self):
+        return self in self.stages_compatible_for_alerts()
+    
+    def is_non_idle_stage(self):
+        return self in self.non_idle_stages()
 
     @classmethod
-    def is_screensaver_stage(cls, idle_stage):
-        return idle_stage in cls.screensaver_mode_stages()
+    def stages_compatible_for_alerts(cls):
+        return cls.StageNotified.compatible_stages(cls)
+
+    @classmethod
+    @lru_cache(maxsize=1)
+    def notifier_stages(cls):
+        notifier_stages = cls.stages_compatible_for_alerts()
+        return cls.StageNotified(**{stage: False for stage in notifier_stages})
 
     @classmethod
     def non_idle_stages(cls):

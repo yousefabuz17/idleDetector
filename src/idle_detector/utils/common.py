@@ -5,10 +5,14 @@ from decimal import Decimal
 from os import PathLike as _PathLike
 from typing import Any, Callable, Union
 
+from .exceptions import MachineNotSupported
+from .os_modules import run_process
+
 PathLike = Union[str, _PathLike]
 DEFAULT_START_TIME_INTERVAL = 120
 DISPLAY_WAS_OFF = False
 IS_IDLE_START_TIME = Decimal(1e-1)
+NULL_INFINITY = Decimal(float("inf"))
 IDLE_DETECTOR_RUN = False
 
 
@@ -22,15 +26,7 @@ def validate_interval_value(interval, default=DEFAULT_START_TIME_INTERVAL):
     Validate and return a non-zero numerical interval.
     If the provided interval is invalid (e.g., None or 0), return the default.
     """
-    return interval if is_valid_object(interval) else default
-
-
-def is_valid_object(num):
-    """
-    Validate numerical or time-based configuration values.
-    Specifically ensures that display monitor/sleep intervals set to `0` are treated as invalid.
-    """
-    return bool(num)
+    return interval if bool(interval) else default
 
 
 def type_name(obj: object) -> str:
@@ -98,3 +94,29 @@ async def run_in_thread(func: Callable[..., Any], *args, **kwargs) -> Any:
     """
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
+
+
+def reverse_sort(items):
+    return sorted(items, reverse=True)
+
+
+async def run_async_process(cmd, **kwargs):
+    return await run_in_thread(run_process, cmd, **kwargs)
+
+
+async def compare_versions(self, detected_version):
+    """
+    Compare the detected version tuple against the minimum required version.
+    Raises `MachineNotSupported` if the detected version is lower than required.
+    """
+    min_version = self.MINIMUM_COMPATIBLE_VERSION
+    if detected_version < min_version:
+        package_name = type_name(self)
+        version_string = "{}.{}".format
+        detected = version_string(*detected_version)
+        required = version_string(*min_version)
+        raise MachineNotSupported(
+            f"`idleDetector` cannot run on this machine."
+            f"\nDetected {package_name!r} version: {detected} ❌"
+            f"\nMinimum required version: {required} ✅"
+        )

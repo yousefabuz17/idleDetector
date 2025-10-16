@@ -7,6 +7,7 @@ from ._dataclasses import (
     idleStages,
 )
 from .machine import MacOS
+from .stage_manager import StageManager
 from .terminal_notifier import TerminalNotifier
 from .time_handler import idleSeconds
 
@@ -16,6 +17,7 @@ __all__ = (
     "NotifierFlags",
     "Serializable",
     "SerializedNamespace",
+    "StageManager",
     "TerminalNotifier",
     "TimeTypes",
     "idleSeconds",

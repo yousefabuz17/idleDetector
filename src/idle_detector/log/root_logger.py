@@ -72,13 +72,13 @@ class RotateLogHandler(RotatingFileHandler):
             self.stream = self._open()
 
 
-def get_logger():
+async def get_logger():
     """
     Returns a preconfigured rotating logger for macOS environments.
     Creates and writes to `idleDetector.log` in the user log directory.
     """
     mac_machine = MacOS("idleDetector.log", ensure_exists=True)
-    mac_machine.check_machine()
+    await mac_machine.check_machine()
 
     DEFAULT_LOG_FILE = mac_machine.user_log_dir
     MAX_LOG_SIZE = 5_000_000  # 5 MB

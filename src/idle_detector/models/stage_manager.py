@@ -1,9 +1,10 @@
 import asyncio
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Optional
 
 from ..utils.common import DISPLAY_WAS_OFF, validate_interval_value
-from ._dataclasses import Serializable, idleStages
+from ._dataclasses import Serializable, SerializedNamespace, idleStages
 from .machine import MacOS
 from .time_handler import idleSeconds
 
@@ -25,7 +26,12 @@ class StageManager(Serializable):
     machine: MacOS
     idle_seconds: idleSeconds = field(default=None, init=False)
     idle_stage: idleStages = field(default=None, init=False)
+    available_idle_stages: Iterable[idleStages] = field(
+        default_factory=list, init=False
+    )
     display_was_off: bool = field(default=DISPLAY_WAS_OFF, init=False)
+    total_seconds_before_waking_up: Optional[float] = field(default=None, init=False)
+    reference_timers: Optional[SerializedNamespace] = field(default=None, init=False)
 
     async def get_machines_available_stages(
         self, screensaver_mode=None, display_off_mode=None
@@ -44,9 +50,9 @@ class StageManager(Serializable):
         # Fallback when no modes are explicitly set
         return idleStages.idle_only_stages()
 
-    async def determine_current_stage(
+    async def detect_current_stage(
         self,
-        idle_interval: Optional[int | float] = None,
+        idle_interval_if_no_modes_are_set: Optional[int | float] = None,
         consider_screensaver_as_off: Optional[bool] = False,
     ):
         global DISPLAY_WAS_OFF
@@ -61,25 +67,52 @@ class StageManager(Serializable):
 
         # Capture the latest measured idle time from the machine
         self.idle_seconds = idle_seconds_obj
-        seconds = idle_seconds_obj.seconds
+        seconds = self.idle_seconds.seconds
 
         # Ensure display mode states are updated according to retrieved system info
         await machine.check_display_modes(screensaver_time, display_off_time)
 
         # --- Establish baseline stage if not yet set ---
         # Ensures a deterministic state before applying advanced mode logic.
-        if self.idle_stage is None:
-            self.idle_stage = (
-                idleStages.USER_IDLE
-                if idle_seconds_obj.is_idle()
-                else idleStages.USER_ACTIVE
-            )
+        self.idle_stage = (
+            idleStages.USER_IDLE
+            if idle_seconds_obj.is_idle()
+            else idleStages.USER_ACTIVE
+        )
 
         # --- Transition from display-off to wake-up ---
-        # If display was off and user activity resumes, emit a WAKE_UP transition once.
-        if DISPLAY_WAS_OFF and not idle_seconds_obj.is_idle():
+        # When the system previously recorded that the display was off (DISPLAY_WAS_OFF),
+        # we only need to observe a single change from idle → active to emit a wake event.
+        # This branch performs that one-time transition and preserves the last-known
+        # idle duration so callers can reason about how long the system was idle before wake.
+        if DISPLAY_WAS_OFF:
+            # TODO: FIX THIS!!!!!!
+            # Total duration from start time to wake-up
+            # is not being set correctly and still
+            # using the updated idle time.
+            if idle_seconds_obj.is_idle():
+                self.total_seconds_before_waking_up = seconds
+                return
+            
+            DISPLAY_WAS_OFF = False
             self.idle_stage = idleStages.WAKE_UP
-            self.display_was_off = DISPLAY_WAS_OFF = False
+                
+            # if not idle_seconds_obj.is_idle():
+            #     # If the machine is no longer considered idle.
+            #     # Flip the global flag so this path will not re-fire until a new display-off
+            #     # event is observed; set the stage to WAKE_UP and return immediately so the
+            #     # caller sees the wake transition before any further stage processing.
+            #     DISPLAY_WAS_OFF = False
+            #     self.idle_stage = idleStages.WAKE_UP
+                # return
+            # else:
+            #     # Otherwise, the display remains off (or the system still reports idle).
+            #     # Capture the most recent idle duration snapshot so it represents the time
+            #     # immediately before the eventual wake. This stored value is intentionally
+            #     # updated each poll while the display is off, ensuring the preserved number
+            #     # reflects the final pre-wake measurement (useful for delta/time-to-wake
+            #     # calculations or for publishing historical diagnostics).
+            #     self.total_seconds_before_waking_up = seconds
             return
 
         # --- Determine available stages based on machine configuration ---
@@ -90,7 +123,7 @@ class StageManager(Serializable):
 
         # --- PRIORITY: Determine available stages based on system config ---
         # Only stages relevant to the current machine configuration are considered.
-        available_stages = await self.get_machines_available_stages(
+        self.available_idle_stages = await self.get_machines_available_stages(
             has_sleep_mode, has_display_off_mode
         )
 
@@ -101,8 +134,8 @@ class StageManager(Serializable):
         # However, if modes are set, the system's configured times take priority
         # over any provided idle interval.
         reference_interval = (
-            idle_interval
-            if validate_interval_value(idle_interval, default=None)
+            idle_interval_if_no_modes_are_set
+            if validate_interval_value(idle_interval_if_no_modes_are_set, default=None)
             and not modes_are_set
             else None
         )
@@ -113,32 +146,41 @@ class StageManager(Serializable):
         # applies when evaluating stages that depend on the display being off.
         # This is relevant for stages like DISPLAY_OFF and SCREEN_SAVER.
         # NOTE: This setting is ignored if the machine lacks a screensaver mode.
-        display_is_considered_off = all(
-            (consider_screensaver_as_off, machine.has_sleep_mode)
-        )
+        display_is_considered_off = all((consider_screensaver_as_off, has_sleep_mode))
+
+        self.reference_timers = SerializedNamespace(module="ReferenceTimers")
+        self.reference_timers.screensaver_time = screensaver_time
+        self.reference_timers.display_off_time = display_off_time
+        self.reference_timers.reference_interval = reference_interval
 
         # --- Final stage resolution loop ---
         # For each candidate idle stage, check if the current idle time exceeds its threshold.
         # The first stage that qualifies sets the machine’s current idle stage.
-        for idle_stage in available_stages:
+        for idle_stage in self.available_idle_stages:
             # Initialize the reference_seconds to the user-provided idle interval, if any.
             # This value will be used to compare against the thresholds for each idle stage.
             reference_seconds = reference_interval
 
             # If no user-provided interval is available, determine the reference time
             # based on the type of idle stage being evaluated.
-            # For display-off stages, use the system's display-off timeout.
             if reference_seconds is None:
-                if display_off_time and idleStages.is_display_off_stage(idle_stage):
+                # For display-off stages, use the system's display-off timeout.
+                if display_off_time and idle_stage.is_display_off_stage():
                     reference_seconds = display_off_time
                 # For screensaver stages, use the system's screensaver timeout.
-                elif screensaver_time and idleStages.is_screensaver_stage(idle_stage):
+                elif screensaver_time and idle_stage.is_screensaver_stage():
                     reference_seconds = screensaver_time
-
-            # If no valid reference time could be determined for the current stage,
-            # skip this stage and move to the next one in the list.
-            if reference_seconds is None:
-                continue
+                else:
+                    # If no valid reference time is available, exit the loop early.
+                    # This can happen if the system lacks both display-off and screensaver modes,
+                    # and no user-defined idle interval is provided. In such cases, only the
+                    # USER_ACTIVE and USER_IDLE stages are applicable, which would have already
+                    # been handled during the initial stage setup.
+                    # NOTE:
+                    # Since the idle interval can be configured dynamically at runtime, this check
+                    # ensures that only stages with valid thresholds are processed, avoiding
+                    # unnecessary iterations.
+                    break
 
             # Each idle stage defines its own relative threshold; use the reference_seconds
             # (e.g., display off or sleep delay) to scale its threshold dynamically.
@@ -163,5 +205,10 @@ class StageManager(Serializable):
                         in idleStages.display_off_stages(display_is_considered_off),
                     )
                 ):
+                    
+                    if display_turned_off:
+                        idle_stage = idleStages.DISPLAY_OFF
+                    
                     self.idle_stage = idle_stage
                     self.display_was_off = DISPLAY_WAS_OFF = True
+                    break

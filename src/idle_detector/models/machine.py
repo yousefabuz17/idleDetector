@@ -16,9 +16,10 @@ from Quartz import (
 )
 
 from ..utils.common import (
+    compare_versions,
     current_timestamp,
     regex_findall,
-    regex_search,
+    run_async_process,
     run_in_thread,
     type_name,
 )
@@ -49,12 +50,12 @@ async def get_screensaver_time():
     """
     try:
         cmd = ["defaults", "-currentHost", "read", "com.apple.screensaver", "idleTime"]
-        proc = await run_in_thread(cmd)
-        output = proc.stdout
+        process = await run_async_process(cmd)
+        output = process.stdout
         return int(output.strip())
     except (Exception, ValueError):
         # Avoid returning 0 for unset preferences (interpreted as disabled)
-        return None
+        pass
 
 
 async def get_display_off_time(seconds: bool = True):
@@ -68,15 +69,18 @@ async def get_display_off_time(seconds: bool = True):
         Optional[int|float]: Display sleep duration in requested unit, or None if undetectable.
     """
     try:
-        proc = await run_in_thread(["pmset", "-g"])
-        output = proc.stdout
-        search_sleep_time = regex_search(r"displaysleep\s+(\d+)", output)
+        process = await run_async_process(["pmset", "-g"])
+        output = process.stdout
+        search_sleep_time = [
+            i.split()[1]
+            for i in output.splitlines()
+            if i.strip().startswith("displaysleep")
+        ]
         if search_sleep_time:
-            sleep_time = int(search_sleep_time.group(1))
+            sleep_time = int(search_sleep_time[0])
             return sleep_time * TimeTypes.MINUTES if seconds else sleep_time
     except Exception:
         pass
-    return None
 
 
 async def _get_display_log_details(
@@ -97,7 +101,7 @@ async def _get_display_log_details(
     ns.is_reached = False
 
     try:
-        proc = await run_in_thread(["pmset", "-g", "log"])
+        proc = await run_async_process(["pmset", "-g", "log"])
         output = proc.stdout
         pattern = r".*Notification\s+Display is turned {}".format(display_mode_regex)
         display_mode_detail = regex_findall(pattern, output)
@@ -202,7 +206,7 @@ async def is_screensaver_running() -> bool:
     Uses AppleScript via `osascript` (wrapped in executor).
     """
     try:
-        proc = await run_in_thread(
+        proc = await run_async_process(
             [
                 "osascript",
                 "-e",
@@ -232,7 +236,7 @@ async def current_idle_time() -> idleSeconds:
     def fallback_idle_time_sync():
         try:
             shell_cmd = "ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print $NF/1000000000; exit}'"
-            proc = run_process(shell_cmd, shell=True)
+            proc = run_process(shell_cmd)
             return float(proc.stdout.strip())
         except Exception:
             return None
@@ -263,7 +267,7 @@ async def current_idle_time() -> idleSeconds:
 # region MacOS
 # ---------------------------
 class MacOS(_MacOS):
-    MINIMUM_COMPATIBLE_VERSION: tuple = (10, 8)
+    MINIMUM_COMPATIBLE_VERSION: tuple = (10, 10)
 
     # Expose the top-level async helpers as staticmethods for parity with original design.
     current_idle_time = staticmethod(current_idle_time)
@@ -282,7 +286,7 @@ class MacOS(_MacOS):
             type_name(self), self.username, self.hostname, self.mac_version
         )
 
-    def check_machine(self):
+    async def check_machine(self):
         """
         Validate the host OS and macOS version compatibility.
         """
@@ -292,15 +296,7 @@ class MacOS(_MacOS):
             )
 
         mac_version_tuple = tuple(int(v) for v in self.mac_version.split(".")[:2])
-        if mac_version_tuple < self.MINIMUM_COMPATIBLE_VERSION:
-            version_string = "{}.{}".format
-            detected = version_string(*mac_version_tuple)
-            required = version_string(*self.MINIMUM_COMPATIBLE_VERSION)
-            raise MachineNotSupported(
-                f"idleDetector cannot run on this machine."
-                f"\nDetected MacOS version: {detected} ❌"
-                f"\nMinimum required version: {required} (Mac OS X 10.8 or higher)."
-            )
+        await compare_versions(self, mac_version_tuple)
 
     async def check_display_modes(self, screensaver_time=None, display_off_time=None):
         if all((screensaver_time, display_off_time)):

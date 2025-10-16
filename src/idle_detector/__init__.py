@@ -7,13 +7,9 @@ from .models import (
     TerminalNotifier,
     TimeTypes,
     idleSeconds,
-    idleStages
+    idleStages,
 )
-from .log import (
-    Logger,
-    RotateLogHandler,
-    get_logger
-)
+from .log import Logger, RotateLogHandler, get_logger
 
 __all__ = (
     "get_logger",
@@ -27,5 +23,5 @@ __all__ = (
     "Serializable",
     "SerializedNamespace",
     "TerminalNotifier",
-    "TimeTypes"
+    "TimeTypes",
 )
