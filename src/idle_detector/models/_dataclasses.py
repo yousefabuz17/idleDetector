@@ -453,7 +453,7 @@ class idleStages(StrEnum):
                 "🚨 Display-Off Warning 🚨",
                 "Machine is Awake 🌞",
             )
-        merged_values = zip(stages, stage_values)
+        merged_values = zip(stages, stage_values, strict=True)
         return next((v for s, v in merged_values if self is s), GroupTypes.IDLE)
 
     def stage_name(self):
@@ -479,7 +479,7 @@ class idleStages(StrEnum):
 
     def is_alert_stage(self):
         return self in self.stages_compatible_for_alerts()
-    
+
     def is_non_idle_stage(self):
         return self in self.non_idle_stages()
 
@@ -499,7 +499,7 @@ class idleStages(StrEnum):
         Stages that do not indicate user idleness.
         return [`USER_ACTIVE`, `WAKE_UP`]
         """
-        return cls.sort_stages([cls.USER_ACTIVE, cls.WAKE_UP])
+        return [cls.USER_ACTIVE, cls.WAKE_UP]
 
     @classmethod
     def idle_mode_stages(cls):
@@ -528,16 +528,16 @@ class idleStages(StrEnum):
 
     @classmethod
     def display_off_only_stages(cls):
-        return cls.sort_stages([cls.DISPLAY_OFF_WARNING, cls.DISPLAY_OFF])
+        return [cls.DISPLAY_OFF_WARNING, cls.DISPLAY_OFF]
 
     @classmethod
     def display_off_stages(cls, consider_screensaver_as_off: bool = False):
         """
-        Stages relevant to display-off mode, specifically the last stage.
+        Stages relevant to display-off mode, specifically the last two stages.
         return [`DISPLAY_OFF`] only if `consider_screensaver_as_off` is not set.
         Otherwise, return [`SCREENSAVER`, `DISPLAY_OFF_WARNING`, `DISPLAY_OFF`]
         """
-        display_off_stages = [cls.SCREENSAVER, *cls.display_off_only_stages()]
-        if not consider_screensaver_as_off:
-            display_off_stages = display_off_stages[-1:]
-        return display_off_stages
+        display_off_stages = cls.display_off_only_stages()
+        if consider_screensaver_as_off:
+            display_off_stages.append(idleStages.SCREENSAVER)
+        return cls.sort_stages(display_off_stages)

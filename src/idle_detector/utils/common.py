@@ -1,6 +1,7 @@
 import asyncio
 import re
 from datetime import datetime
+from dateutil.parser import parse as date_parser
 from decimal import Decimal
 from os import PathLike as _PathLike
 from typing import Any, Callable, Union
@@ -8,11 +9,22 @@ from typing import Any, Callable, Union
 from .exceptions import MachineNotSupported
 from .os_modules import run_process
 
+
 PathLike = Union[str, _PathLike]
-DEFAULT_START_TIME_INTERVAL = 120
+# Boolean flag indicating whether the display was turned off.
+# This is used to track the state of the display for idle detection purposes.
 DISPLAY_WAS_OFF = False
+
+# The threshold time (in seconds) to consider the system as idle.
+# Represented as a Decimal for precision in calculations.
 IS_IDLE_START_TIME = Decimal(1e-1)
+
+# A constant representing an infinite value.
+# Used as a placeholder for cases where no upper limit is defined.
 NULL_INFINITY = Decimal(float("inf"))
+
+# Boolean flag to indicate whether the idle detector is currently running.
+# This is used to manage the state of the idle detection process.
 IDLE_DETECTOR_RUN = False
 
 
@@ -21,7 +33,7 @@ def current_timestamp():
     return datetime.now()
 
 
-def validate_interval_value(interval, default=DEFAULT_START_TIME_INTERVAL):
+def validate_interval_value(interval, default=None):
     """
     Validate and return a non-zero numerical interval.
     If the provided interval is invalid (e.g., None or 0), return the default.

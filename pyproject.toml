@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "idle_detector"
-version = "0.0.3"
+version = "0.0.4"
 authors = [
     { name = "Yousef Abuzahrieh", email = "yousefzahrieh17@gmail.com" }
 ]
@@ -23,6 +23,7 @@ classifiers = [
 ]
 
 dependencies = [
+    "python-dateutil",
     "platformdirs",
     "pyobjc-framework-Quartz",
 ]

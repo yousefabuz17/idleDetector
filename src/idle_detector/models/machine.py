@@ -5,7 +5,6 @@ from decimal import Decimal
 from functools import cached_property
 from typing import Optional
 
-from dateutil.parser import parse as date_parser
 from platformdirs.macos import MacOS as _MacOS
 from Quartz import (
     CGDisplayIsActive,
@@ -18,10 +17,12 @@ from Quartz import (
 from ..utils.common import (
     compare_versions,
     current_timestamp,
+    date_parser,
     regex_findall,
     run_async_process,
     run_in_thread,
     type_name,
+    validate_interval_value,
 )
 from ..utils.exceptions import (
     MachineNotSupported,
@@ -344,7 +345,10 @@ class MacOS(_MacOS):
         Caches result per-process after first retrieval.
         """
         if self._has_sleep_mode_cache is None:
-            self._has_sleep_mode_cache = (await self.get_screensaver_time()) is not None
+            screensaver_time = await self.get_screensaver_time()
+            self._has_sleep_mode_cache = (
+                validate_interval_value(screensaver_time) is not None
+            )
         return self._has_sleep_mode_cache
 
     async def has_display_off_mode(self) -> bool:
@@ -353,9 +357,10 @@ class MacOS(_MacOS):
         Caches result per-process after first retrieval.
         """
         if self._has_display_off_mode_cache is None:
+            display_off_time = await self.get_display_off_time()
             self._has_display_off_mode_cache = (
-                await self.get_display_off_time()
-            ) is not None
+                validate_interval_value(display_off_time) is not None
+            )
         return self._has_display_off_mode_cache
 
     async def modes_are_set(self) -> bool:

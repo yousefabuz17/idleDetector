@@ -1,12 +1,13 @@
 import asyncio
 import signal
 from dataclasses import dataclass, field
+from time import sleep
 from typing import Optional
 
 from .idle_notifier import idleNotifier
 from .models import idleStages, MacOS, Serializable, StageManager, TerminalNotifier
 from .utils.common import (
-    DEFAULT_START_TIME_INTERVAL,
+    IS_IDLE_START_TIME,
     IDLE_DETECTOR_RUN,
     validate_interval_value,
 )
@@ -34,12 +35,13 @@ class idleDetector(Serializable):
     machine: MacOS = field(kw_only=False)
     ignoreDnD: Optional[bool] = field(default=True)
     compact_timestamp: Optional[bool] = field(default=False)
-    sleep_time_interval: int | float = field(default=DEFAULT_START_TIME_INTERVAL)
+    start_idle_timer: Optional[int | float] = field(default=IS_IDLE_START_TIME)
     idle_interval_if_no_modes_are_set: Optional[int | float] = field(default=None)
     consider_screensaver_as_off: Optional[bool] = field(default=False)
     group_notifications: Optional[bool] = field(default=False)
 
     def __post_init__(self):
+        self.__lock = asyncio.Lock()
         self.__signal_started = False
         self.__stage_manager = None
         self.__terminal_notifier = None
@@ -172,10 +174,6 @@ class idleDetector(Serializable):
               responsiveness during idle monitoring.
         """
 
-        # Validate and normalize the startup delay interval.
-        # This defines the time to wait (if enabled) before the first idle check.
-        sleep_time_interval = validate_interval_value(self.sleep_time_interval)
-
         # Initialize core components responsible for controlling runtime state.
         # This ensures global flags, and signal handlers, are ready before entering the loop.
         # NOTE: These operations are asynchronous and may involve I/O or system calls
@@ -189,44 +187,40 @@ class idleDetector(Serializable):
         # Begin the main idle detection loop.
         # This loop runs indefinitely until the global flag is toggled off by a shutdown signal.
         while IDLE_DETECTOR_RUN:
-            # Optionally allow the system to stabilize before the first state evaluation.
-            # await asyncio.sleep(sleep_time_interval)
+            await asyncio.sleep(0.01)
+            
+            async with self.__lock:
+                stage_manager = self.__stage_manager
 
-            stage_manager = self.__stage_manager
-
-            # Evaluate the current system state and determine which idle stage applies.
-            # The StageManager encapsulates logic for:
-            #   - Interpreting display/sleep activity.
-            #   - Applying the user-defined fallback idle interval when no native modes exist.
-            #   - Updating `idle_stage` (e.g., active, idle, screensaver, display_off, etc)
-            #     and tracking total idle seconds.
-            await stage_manager.detect_current_stage(
-                self.idle_interval_if_no_modes_are_set, self.consider_screensaver_as_off
-            )
-            # await asyncio.sleep(0.1)
-
-            # If the current stage is not configured for alerts, skip notification.
-            # This prevents unnecessary notifications for benign states.
-            # Stages like USER_ACTIVE or USER_IDLE typically do not trigger notifications.
-            # The `is_alert_stage()` method checks if the current stage is among those
-            # compatible defined in `idleStages.stages_compatible_for_alerts()`.
-            alert_stage = stage_manager.idle_stage.is_alert_stage()
-            if alert_stage:
-                # If the stage is alert-worthy, proceed to notify.
-                await self.start_terminal_notifier()
-                # await asyncio.sleep(0.0001)
-                print(
-                    stage_manager.idle_stage,
-                    stage_manager.idle_seconds,
-                    stage_manager.display_was_off,
+                # Evaluate the current system state and determine which idle stage applies.
+                # The StageManager encapsulates logic for:
+                #   - Interpreting display/sleep activity.
+                #   - Applying the user-defined fallback idle interval when no native modes exist.
+                #   - Updating `idle_stage` (e.g., active, idle, screensaver, display_off, etc)
+                #     and tracking total idle seconds.
+                await stage_manager.detect_current_stage(
+                    self.idle_interval_if_no_modes_are_set,
+                    self.consider_screensaver_as_off,
                 )
 
-            if all((
-                stage_manager.idle_stage.is_non_idle_stage(),
-                self.__stages_notifier is not None
-            )):
-                # await asyncio.sleep(1)
-                self.__stages_notifier.reset_attributes()
+                # If the current stage is not configured for alerts, skip notification.
+                # This prevents unnecessary notifications for benign states.
+                # Stages like USER_ACTIVE or USER_IDLE typically do not trigger notifications.
+                # The `is_alert_stage()` method checks if the current stage is among those
+                # compatible defined in `idleStages.stages_compatible_for_alerts()`.
+                idle_stage = stage_manager.idle_stage
+
+                if idle_stage.is_alert_stage():
+                    # If the stage is alert-worthy, proceed to notify.
+                    await self.start_terminal_notifier()
+                    await asyncio.sleep(0.1)
+
+                if (
+                    self.__stages_notifier is not None
+                    and idle_stage.is_non_idle_stage()
+                ):
+                    await asyncio.sleep(0.1)
+                    self.__stages_notifier.reset_attributes()
 
     async def start_terminal_notifier(self):
         await self.initialize_notifiers()
@@ -238,6 +232,7 @@ class idleDetector(Serializable):
         if not stage_notifier.stage_was_notified(idle_stage):
             await idle_notifier.send_alert()
             stage_notifier.toggle_notified_status(idle_stage)
+            await asyncio.sleep(0.1)
 
     @property
     def terminal_notifier(self):

@@ -76,20 +76,19 @@ def terminate(status=0):
     os._exit(status)
 
 
-
 __all__ = (
-        "add_executable_permissions",
-        "find_package",
-        "get_env",
-        "get_mac_version",
-        "get_nodename",
-        "get_platform",
-        "get_project_path",
-        "is_executable",
-        "is_file",
-        "rename",
-        "rm_file",
-        "rm_files",
-        "run_process",
-        "terminate",
-    )
+    "add_executable_permissions",
+    "find_package",
+    "get_env",
+    "get_mac_version",
+    "get_nodename",
+    "get_platform",
+    "get_project_path",
+    "is_executable",
+    "is_file",
+    "rename",
+    "rm_file",
+    "rm_files",
+    "run_process",
+    "terminate",
+)

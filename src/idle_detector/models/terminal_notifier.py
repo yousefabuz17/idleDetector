@@ -2,9 +2,12 @@ from functools import cached_property
 from itertools import chain
 from pathlib import Path
 
-from dateutil.parser import parse as date_parser
-
-from ..utils.common import compare_versions, encode_message, run_async_process
+from ..utils.common import (
+    compare_versions,
+    date_parser,
+    encode_message,
+    run_async_process,
+)
 from ..utils.exceptions import MissingPackage
 from ..utils.os_modules import (
     add_executable_permissions,
@@ -75,7 +78,7 @@ class TerminalNotifier:
 
         for line in process.stdout.splitlines()[1:]:
             line = line.split("\t")
-            notifications.append(dict(zip(header_field_names, line)))
+            notifications.append(dict(zip(header_field_names, line, strict=True)))
 
             try:
                 notifications[-1]["delivered_at"] = date_parser(

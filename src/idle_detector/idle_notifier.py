@@ -33,7 +33,7 @@ class idleNotifier:
             pass
         else:
             modes = None
-        
+
         # If valid timing data exists, compute the temporal offset between the two.
         # The resulting difference is returned in a human-readable format suitable
         # for user-facing notifications or debug traces.
@@ -43,21 +43,23 @@ class idleNotifier:
                 idle_detector.compact_timestamp
             )
             return human_readable_duration
-    
-    def create_idle_time_message(self, duration, compact_timestamp, message_only: bool=True):
+
+    def create_idle_time_message(
+        self, duration, compact_timestamp, message_only: bool = True
+    ):
         # Create a concise descriptor for how long the system has been idle.
         # Converts raw duration seconds into a normalized, human-readable value.
         seconds_duration = idleSeconds(duration)
         hr_format = seconds_duration.human_readable(compact_name=compact_timestamp)
-        msg =  f"Machine been idle for {hr_format}."
-        
+        msg = f"Machine been idle for {hr_format}."
+
         if message_only:
             return msg
         return seconds_duration.seconds, msg
-    
+
     def create_message_template(
         self,
-        prefix: str="",
+        prefix: str = "",
         time_left_until_next_display_stage=None,
         *,
         pre_screensaver_stage: bool = False,
@@ -74,12 +76,12 @@ class idleNotifier:
             msg = f"Display will be turning off in {duration}"
         else:
             msg = ""
-        
+
         # Streamline message when the duration is immediate.
         # This removes redundant linguistic fillers (e.g., "in soon").
         if duration == "soon":
             msg = msg.replace("in ", "", 1) + "."
-        
+
         return "{}{}{}".format(prefix, " " if prefix else "", msg)
 
     def build_notification_message(self):
@@ -95,7 +97,7 @@ class idleNotifier:
             if idle_stage in idleStages.display_off_only_stages()
             else reference_timers.screensaver_time
         )
-        
+
         # Compute remaining time until the next major idle transition stage.
         # This enables proactive notifications (e.g., before display off or sleep).
         if reference_time:
@@ -116,37 +118,37 @@ class idleNotifier:
                 return self.create_message_template(
                     prefix,
                     time_left_until_next_display_stage,
-                    pre_screensaver_stage=True
+                    pre_screensaver_stage=True,
                 )
             case idleStages.THREE_QUARTERS_TO_SCREENSAVER:
                 return self.create_message_template(
                     prefix,
                     time_left_until_next_display_stage,
-                    pre_screensaver_stage=True
+                    pre_screensaver_stage=True,
                 )
             case idleStages.SCREENSAVER:
                 next_stage_duration = self.calculate_display_time_difference()
-                
+
                 if next_stage_duration is not None:
                     time_left_until_next_display_stage = next_stage_duration
-                
+
                 return self.create_message_template(
                     "Snooze time 💤.",
                     time_left_until_next_display_stage,
-                    sleep_time=True
+                    sleep_time=True,
                 )
             case idleStages.DISPLAY_OFF_WARNING:
                 return self.create_message_template(
-                    "Sleep time 💤.",
-                    None,
-                    sleep_time=True
+                    "Sleep time 💤.", None, sleep_time=True
                 )
             case idleStages.WAKE_UP:
-                total_seconds_before_waking_up = stage_manager.total_seconds_before_waking_up
+                total_seconds_before_waking_up = (
+                    stage_manager.total_seconds_before_waking_up
+                )
                 seconds, prefix = self.create_idle_time_message(
                     total_seconds_before_waking_up,
                     compact_timestamp,
-                    message_only=False
+                    message_only=False,
                 )
                 return f"{prefix}\nTotal Seconds: {int(seconds):,}"
             case _:
@@ -159,7 +161,7 @@ class idleNotifier:
         terminal_notifier = idle_detector.terminal_notifier
         content_images = terminal_notifier.content_images
         message = self.build_notification_message()
-        
+
         # --- Notification grouping semantics ---
         # The 'group' key in the terminal-notifier payload must be **omitted entirely**
         # unless grouping is explicitly enabled. Passing a None or falsy group ID still

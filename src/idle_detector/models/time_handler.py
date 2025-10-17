@@ -4,7 +4,7 @@ from decimal import Decimal
 from functools import total_ordering
 from typing import ClassVar
 
-from ..utils.common import IS_IDLE_START_TIME, to_seconds
+from ..utils.common import IS_IDLE_START_TIME, to_seconds, validate_interval_value
 from ._dataclasses import TimeTypes
 
 
@@ -97,11 +97,12 @@ class idleSeconds:
         """Factory for creating idleSeconds from a numeric literal."""
         return idleSeconds(cls.to_seconds(seconds))
 
-    def is_idle(self):
+    def is_idle(self, start_idle_time=None):
         """
         Check if the systems current idle duration meets or exceeds the system’s configured idle threshold.
         """
-        return self.seconds >= IS_IDLE_START_TIME
+        start_time_seconds = validate_interval_value(start_idle_time, default=IS_IDLE_START_TIME)
+        return self.seconds >= Decimal(start_time_seconds)
 
     def asdelta(self):
         """Convert seconds into a timedelta object"""
