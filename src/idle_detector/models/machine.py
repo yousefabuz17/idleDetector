@@ -200,11 +200,17 @@ async def is_display_active(check_if_still_off: bool = False) -> bool:
         return not check_if_still_off
 
 
-async def is_screensaver_running() -> bool:
+async def is_screensaver_running():
     """
-    Return True if the macOS screensaver is currently active.
+    Check if the macOS screensaver is currently active.
 
-    Uses AppleScript via `osascript` (wrapped in executor).
+    This asynchronous function uses AppleScript via the `osascript` command to determine
+    whether the macOS screensaver is running. It executes the AppleScript command in a
+    subprocess and parses the output to return a boolean value.
+
+    Returns:
+        bool: True if the screensaver is active, False otherwise. If the command fails
+        or an exception occurs, it defaults to returning False.
     """
     try:
         proc = await run_async_process(
@@ -278,9 +284,9 @@ class MacOS(_MacOS):
     def __init__(self, appname: Optional[str] = None, ensure_exists: bool = False):
         super().__init__(appname, ensure_exists)
         # Async caches (private)
-        self._has_sleep_mode_cache: Optional[bool] = None
-        self._has_display_off_mode_cache: Optional[bool] = None
-        self._modes_are_set_cache: Optional[bool] = None
+        self.__has_sleep_mode_cache: Optional[bool] = None
+        self.__has_display_off_mode_cache: Optional[bool] = None
+        self.__modes_are_set_cache: Optional[bool] = None
 
     def __str__(self):
         return "{}(user={!r}, hostname={!r}, mac_ver={!r})".format(
@@ -344,33 +350,34 @@ class MacOS(_MacOS):
         True if screensaver idle timeout is configured (not `None`, set to 0).
         Caches result per-process after first retrieval.
         """
-        if self._has_sleep_mode_cache is None:
+        if self.__has_sleep_mode_cache is None:
             screensaver_time = await self.get_screensaver_time()
-            self._has_sleep_mode_cache = (
+            self.__has_sleep_mode_cache = (
                 validate_interval_value(screensaver_time) is not None
             )
-        return self._has_sleep_mode_cache
+        return self.__has_sleep_mode_cache
 
     async def has_display_off_mode(self) -> bool:
         """
         True if display sleep mode is configured (not `None`, set to 0).
         Caches result per-process after first retrieval.
         """
-        if self._has_display_off_mode_cache is None:
+        if self.__has_display_off_mode_cache is None:
             display_off_time = await self.get_display_off_time()
-            self._has_display_off_mode_cache = (
+            self.__has_display_off_mode_cache = (
                 validate_interval_value(display_off_time) is not None
             )
-        return self._has_display_off_mode_cache
+        return self.__has_display_off_mode_cache
 
-    async def modes_are_set(self) -> bool:
+    async def modes_are_set(self, verify_both_are_set=True) -> bool:
         """
         Return True only if both sleep and display-off modes are active.
         Uses asyncio.gather to run both checks concurrently.
         """
-        if self._modes_are_set_cache is None:
+        if self.__modes_are_set_cache is None:
             results = await asyncio.gather(
                 self.has_sleep_mode(), self.has_display_off_mode()
             )
-            self._modes_are_set_cache = all(results)
-        return self._modes_are_set_cache
+            method = any if not verify_both_are_set else all
+            self.__modes_are_set_cache = method(results)
+        return self.__modes_are_set_cache

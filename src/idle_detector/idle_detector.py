@@ -1,16 +1,12 @@
 import asyncio
 import signal
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from time import sleep
 from typing import Optional
 
 from .idle_notifier import idleNotifier
 from .models import idleStages, MacOS, Serializable, StageManager, TerminalNotifier
-from .utils.common import (
-    IS_IDLE_START_TIME,
-    IDLE_DETECTOR_RUN,
-    validate_interval_value,
-)
+from .utils.common import IDLE_DETECTOR_RUN, validate_interval_value
 
 
 @dataclass(
@@ -32,21 +28,26 @@ class idleDetector(Serializable):
     polling interval for the idle detection loop.
     """
 
-    machine: MacOS = field(kw_only=False)
+    machine: MacOS = field(default_factory=MacOS, kw_only=False)
     ignoreDnD: Optional[bool] = field(default=True)
     compact_timestamp: Optional[bool] = field(default=False)
-    start_idle_timer: Optional[int | float] = field(default=IS_IDLE_START_TIME)
     idle_interval_if_no_modes_are_set: Optional[int | float] = field(default=None)
-    consider_screensaver_as_off: Optional[bool] = field(default=False)
+    consider_screensaver_as_off: Optional[bool] = field(default=True)
     group_notifications: Optional[bool] = field(default=False)
+    pause_detection_timer: Optional[int | float] = field(default=None)
 
     def __post_init__(self):
-        self.__lock = asyncio.Lock()
+        self.__lock = None
         self.__signal_started = False
         self.__stage_manager = None
         self.__terminal_notifier = None
         self.__idle_notifier = None
         self.__stages_notifier = None
+
+    @asynccontextmanager
+    async def lock(self):
+        async with self.__lock:
+            yield
 
     async def __aenter__(self):
         """Initialize the asynchronous context by preparing signal handlers."""
@@ -69,6 +70,10 @@ class idleDetector(Serializable):
         """
         global IDLE_DETECTOR_RUN
         IDLE_DETECTOR_RUN = True
+
+    async def initiate_lock(self):
+        if self.__lock is None:
+            self.__lock = asyncio.Lock()
 
     async def initialize_notifiers(self):
         """
@@ -115,7 +120,7 @@ class idleDetector(Serializable):
             await self.assign_signal_handler(self.shutdown_idle_detection)
             self.__signal_started = True
 
-    def shutdown_idle_detection(self, *args, **kwargs):
+    def shutdown_idle_detection(self, *_, **__):
         """
         Gracefully terminate the idle detection loop.
 
@@ -181,15 +186,21 @@ class idleDetector(Serializable):
         await asyncio.gather(
             self.initialize_run(),
             self.setup_signal_handlers(),
+            self.initiate_lock(),
             self.initialize_stage_manager(),
         )
+        
+        suppress_detection = validate_interval_value(self.pause_detection_timer)
 
         # Begin the main idle detection loop.
         # This loop runs indefinitely until the global flag is toggled off by a shutdown signal.
         while IDLE_DETECTOR_RUN:
-            await asyncio.sleep(0.01)
+            if suppress_detection is not None:
+                await asyncio.sleep(suppress_detection)
             
-            async with self.__lock:
+            await asyncio.sleep(0.01)
+
+            async with self.lock():
                 stage_manager = self.__stage_manager
 
                 # Evaluate the current system state and determine which idle stage applies.
@@ -213,13 +224,13 @@ class idleDetector(Serializable):
                 if idle_stage.is_alert_stage():
                     # If the stage is alert-worthy, proceed to notify.
                     await self.start_terminal_notifier()
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0)
 
                 if (
                     self.__stages_notifier is not None
                     and idle_stage.is_non_idle_stage()
                 ):
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0)
                     self.__stages_notifier.reset_attributes()
 
     async def start_terminal_notifier(self):
@@ -232,7 +243,7 @@ class idleDetector(Serializable):
         if not stage_notifier.stage_was_notified(idle_stage):
             await idle_notifier.send_alert()
             stage_notifier.toggle_notified_status(idle_stage)
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0)
 
     @property
     def terminal_notifier(self):

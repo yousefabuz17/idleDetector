@@ -3,7 +3,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from ..models.machine import MacOS
-from ..utils.common import PathLike
+from ..utils.common import PROJECT, PathLike
 from ..utils.os_modules import rename, rm_file
 
 Logger = logging.Logger
@@ -72,16 +72,17 @@ class RotateLogHandler(RotatingFileHandler):
             self.stream = self._open()
 
 
-async def get_logger():
+async def get_logger(stream_only: bool = False, include_timestamp: bool = True):
     """
-    Returns a preconfigured rotating logger for macOS environments.
-    Creates and writes to `idleDetector.log` in the user log directory.
+    Returns a preconfigured logger for macOS environments.
+    When stream_only=True: logs only to console
+    When stream_only=False: logs to both console and file
     """
-    mac_machine = MacOS("idleDetector.log", ensure_exists=True)
+    mac_machine = MacOS(f"{PROJECT}.log", ensure_exists=True)
     await mac_machine.check_machine()
 
     DEFAULT_LOG_FILE = mac_machine.user_log_dir
-    MAX_LOG_SIZE = 5_000_000  # 5 MB
+    MAX_LOG_SIZE = 10_000_000  # 10 MB
     MAX_LOG_FILES = 5
 
     root_logger = logging.getLogger()
@@ -91,22 +92,29 @@ async def get_logger():
 
     level = logging.INFO
 
-    file_handler = RotateLogHandler(
-        DEFAULT_LOG_FILE,
-        mode="a",
-        encoding="utf-8",
-        maxBytes=MAX_LOG_SIZE,
-        backupCount=MAX_LOG_FILES,
-    )
-    file_handler.setLevel(level)
-
+    fmt = "{}%(message)s".format("" if not include_timestamp else "[%(asctime)s]--")
     formatter = logging.Formatter(
-        fmt="[%(asctime)s]--%(message)s",
+        fmt=fmt,
         datefmt="%Y-%m-%dT%I:%M:%S%p",
     )
-    file_handler.setFormatter(formatter)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(level)
+    stream_handler.setFormatter(formatter)
+    root_logger.addHandler(stream_handler)
+
+    if not stream_only:
+        file_handler = RotateLogHandler(
+            DEFAULT_LOG_FILE,
+            mode="a",
+            encoding="utf-8",
+            maxBytes=MAX_LOG_SIZE,
+            backupCount=MAX_LOG_FILES,
+        )
+        file_handler.setLevel(level)
+        file_handler.setFormatter(formatter)
+        root_logger.addHandler(file_handler)
 
     root_logger.setLevel(level)
-    root_logger.addHandler(file_handler)
 
     return root_logger

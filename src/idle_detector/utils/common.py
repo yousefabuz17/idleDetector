@@ -1,14 +1,14 @@
 import asyncio
 import re
 from datetime import datetime
-from dateutil.parser import parse as date_parser
 from decimal import Decimal
 from os import PathLike as _PathLike
 from typing import Any, Callable, Union
 
+from dateutil.parser import parse
+
 from .exceptions import MachineNotSupported
 from .os_modules import run_process
-
 
 PathLike = Union[str, _PathLike]
 # Boolean flag indicating whether the display was turned off.
@@ -21,16 +21,22 @@ IS_IDLE_START_TIME = Decimal(1e-1)
 
 # A constant representing an infinite value.
 # Used as a placeholder for cases where no upper limit is defined.
-NULL_INFINITY = Decimal(float("inf"))
+NULL_INFINITY = Decimal("inf")
 
 # Boolean flag to indicate whether the idle detector is currently running.
 # This is used to manage the state of the idle detection process.
 IDLE_DETECTOR_RUN = False
 
+PROJECT = "idleDetector"
+
 
 def current_timestamp():
     """Return the current local date and time."""
     return datetime.now()
+
+
+def date_parser(timestr):
+    return parse(timestr)
 
 
 def validate_interval_value(interval, default=None):
@@ -128,7 +134,7 @@ async def compare_versions(self, detected_version):
         detected = version_string(*detected_version)
         required = version_string(*min_version)
         raise MachineNotSupported(
-            f"`idleDetector` cannot run on this machine."
+            f"`{PROJECT}` cannot run on this machine."
             f"\nDetected {package_name!r} version: {detected} ❌"
             f"\nMinimum required version: {required} ✅"
         )
