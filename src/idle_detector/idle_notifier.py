@@ -73,7 +73,7 @@ class idleNotifier:
         if pre_screensaver_stage:
             msg = f"Screensaver will activate in {duration}"
         elif sleep_time:
-            msg = f"Display will be turning off in {duration}"
+            msg = f"Display will fully turn off in {duration}"
         else:
             msg = ""
 

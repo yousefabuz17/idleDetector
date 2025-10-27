@@ -2,8 +2,8 @@ import asyncio
 import operator
 from datetime import datetime
 from decimal import Decimal
-from functools import cached_property
-from typing import Optional
+from functools import cached_property, lru_cache
+from typing import ClassVar, Optional
 
 from platformdirs.macos import MacOS as _MacOS
 from Quartz import (
@@ -15,6 +15,7 @@ from Quartz import (
 )
 
 from ..utils.common import (
+    PROJECT,
     compare_versions,
     current_timestamp,
     date_parser,
@@ -277,20 +278,20 @@ class MacOS(_MacOS):
     MINIMUM_COMPATIBLE_VERSION: tuple = (10, 10)
 
     # Expose the top-level async helpers as staticmethods for parity with original design.
-    current_idle_time = staticmethod(current_idle_time)
-    get_display_off_time = staticmethod(get_display_off_time)
-    get_screensaver_time = staticmethod(get_screensaver_time)
+    current_idle_time: ClassVar[staticmethod] = staticmethod(current_idle_time)
+    get_display_off_time: ClassVar[staticmethod] = staticmethod(get_display_off_time)
+    get_screensaver_time: ClassVar[staticmethod] = staticmethod(get_screensaver_time)
 
     def __init__(self, appname: Optional[str] = None, ensure_exists: bool = False):
-        super().__init__(appname, ensure_exists)
-        # Async caches (private)
-        self.__has_sleep_mode_cache: Optional[bool] = None
-        self.__has_display_off_mode_cache: Optional[bool] = None
-        self.__modes_are_set_cache: Optional[bool] = None
+        super().__init__(appname=appname, ensure_exists=ensure_exists)
 
     def __str__(self):
-        return "{}(user={!r}, hostname={!r}, mac_ver={!r})".format(
-            type_name(self), self.username, self.hostname, self.mac_version
+        return "{}(user={!r}, hostname={!r}, mac_ver={!r}, appname={!r})".format(
+            type_name(self),
+            self.username,
+            self.hostname,
+            self.mac_version,
+            self.appname,
         )
 
     async def check_machine(self):
@@ -305,13 +306,26 @@ class MacOS(_MacOS):
         mac_version_tuple = tuple(int(v) for v in self.mac_version.split(".")[:2])
         await compare_versions(self, mac_version_tuple)
 
-    async def check_display_modes(self, screensaver_time=None, display_off_time=None):
-        if all((screensaver_time, display_off_time)):
-            assert (
-                display_off_time > screensaver_time
-            ), "Display-off time must be greater than screensaver time."
+    @classmethod
+    def generate_log_file(cls, file_name: str = None):
+        if not file_name:
+            file_name = PROJECT
+
+        m = cls(ensure_exists=True)
+        log_main_dir = m.user_log_path / PROJECT
+        return (log_main_dir / file_name).with_suffix(".log")
 
     # --- synchronous cached properties (safe to compute quickly) ---
+    @classmethod
+    @lru_cache(maxsize=1)
+    def log_files(cls):
+        main_log_file, out_log, err_log = (
+            MacOS().generate_log_file(f) for f in (None, "out", "err")
+        )
+        return SerializedNamespace(
+            module="LogFiles", log_file=main_log_file, out_log=out_log, err_log=err_log
+        )
+
     @cached_property
     def os_machine(self):
         """Return the system platform identifier, e.g., 'darwin'."""
@@ -348,36 +362,23 @@ class MacOS(_MacOS):
     async def has_sleep_mode(self):
         """
         True if screensaver idle timeout is configured (not `None`, set to 0).
-        Caches result per-process after first retrieval.
         """
-        if self.__has_sleep_mode_cache is None:
-            screensaver_time = await self.get_screensaver_time()
-            self.__has_sleep_mode_cache = (
-                validate_interval_value(screensaver_time) is not None
-            )
-        return self.__has_sleep_mode_cache
+        screensaver_time = await self.get_screensaver_time()
+        return validate_interval_value(screensaver_time) is not None
 
     async def has_display_off_mode(self) -> bool:
         """
         True if display sleep mode is configured (not `None`, set to 0).
-        Caches result per-process after first retrieval.
         """
-        if self.__has_display_off_mode_cache is None:
-            display_off_time = await self.get_display_off_time()
-            self.__has_display_off_mode_cache = (
-                validate_interval_value(display_off_time) is not None
-            )
-        return self.__has_display_off_mode_cache
+        display_off_time = await self.get_display_off_time()
+        return validate_interval_value(display_off_time) is not None
 
     async def modes_are_set(self, verify_both_are_set=True) -> bool:
         """
         Return True only if both sleep and display-off modes are active.
-        Uses asyncio.gather to run both checks concurrently.
         """
-        if self.__modes_are_set_cache is None:
-            results = await asyncio.gather(
-                self.has_sleep_mode(), self.has_display_off_mode()
-            )
-            method = any if not verify_both_are_set else all
-            self.__modes_are_set_cache = method(results)
-        return self.__modes_are_set_cache
+        results = await asyncio.gather(
+            self.has_sleep_mode(), self.has_display_off_mode()
+        )
+        method = any if not verify_both_are_set else all
+        return method(results)

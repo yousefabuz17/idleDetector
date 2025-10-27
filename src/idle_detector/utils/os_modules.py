@@ -14,8 +14,8 @@ def add_executable_permissions(path):
     os.chmod(path, new_permissions)
 
 
-def find_package(package):
-    return shutil.which(package)
+def find_package(package, default=None):
+    return shutil.which(package) or default
 
 
 def get_env(key, default=None):
@@ -30,12 +30,20 @@ def get_nodename():
     return platform.node()
 
 
+def get_sys_path():
+    return os.environ["PATH"]
+
+
 def get_platform():
     return platform.system().lower()
 
 
 def get_project_path(path):
-    return res.files("src").joinpath(path)
+    return res.files("idle_detector").joinpath(path)
+
+
+def getuid():
+    return os.getuid()
 
 
 def is_executable(path):
@@ -46,6 +54,10 @@ def is_file(fp):
     return os.path.isfile(fp)
 
 
+def copy_file(src, dst):
+    shutil.copy(src, dst)
+
+
 def rename(src, dst):
     os.rename(src, dst)
 
@@ -53,11 +65,6 @@ def rename(src, dst):
 def rm_file(fp):
     if is_file(fp):
         os.remove(fp)
-
-
-def rm_files(*files):
-    for f in files:
-        rm_file(f)
 
 
 def run_process(cmd, **kwargs):
@@ -88,7 +95,6 @@ __all__ = (
     "is_file",
     "rename",
     "rm_file",
-    "rm_files",
     "run_process",
     "terminate",
 )

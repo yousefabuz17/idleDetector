@@ -24,6 +24,8 @@ class StageManager(Serializable):
     """
 
     machine: MacOS
+    detect_screensaver_status: Optional[bool] = field(default=False)
+
     idle_seconds: idleSeconds = field(default=None, init=False)
     idle_stage: idleStages = field(default=None, init=False)
     available_idle_stages: Iterable[idleStages] = field(
@@ -90,9 +92,6 @@ class StageManager(Serializable):
         self.idle_seconds = idle_seconds_obj
         machine_is_idle = idle_seconds_obj.is_idle()
         seconds = self.idle_seconds.seconds
-
-        # Ensure display mode states are updated according to retrieved system info
-        await machine.check_display_modes(screensaver_time, display_off_time)
 
         # --- Establish baseline stage if not yet set ---
         # Ensures a deterministic state before applying advanced mode logic.
@@ -162,7 +161,7 @@ class StageManager(Serializable):
         # applies when evaluating stages that depend on the display being off.
         # This is relevant for stages like DISPLAY_OFF and SCREEN_SAVER.
         # NOTE: This setting is ignored if the machine lacks a screensaver mode.
-        display_is_considered_off = all((consider_screensaver_as_off, has_sleep_mode))
+        display_is_considered_off = False
 
         # NOTE (important):
         # Assess whether the display should be considered off.
@@ -171,12 +170,16 @@ class StageManager(Serializable):
         # If the display is physically off, or if the screensaver is active
         # and configured to be treated as equivalent to the display being off,
         # update the state to reflect that the display is off.
-        screensaver_is_running, display_turned_off = await asyncio.gather(
-            machine.screensaver_is_active(), machine.display_is_turned_off()
-        )
-        is_display_off = any(
-            (screensaver_is_running, display_turned_off, display_is_considered_off)
-        )
+        screensaver_is_running = False
+        display_turned_off = await machine.display_is_turned_off()
+
+        if self.detect_screensaver_status:
+            screensaver_is_running = await machine.screensaver_is_active()
+            display_is_considered_off = all(
+                (screensaver_is_running, consider_screensaver_as_off, has_sleep_mode)
+            )
+
+        is_display_off = any((display_turned_off, display_is_considered_off))
 
         # --- Final stage resolution loop ---
         # For each candidate idle stage, check if the current idle time exceeds its threshold.

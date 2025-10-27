@@ -5,7 +5,7 @@ from pathlib import Path
 from ..utils.common import (
     compare_versions,
     date_parser,
-    encode_message,
+    encode_string,
     run_async_process,
 )
 from ..utils.exceptions import MissingPackage
@@ -49,7 +49,7 @@ class TerminalNotifier:
     async def notify(self, **terminal_notifier_kwargs):
         test_message = "This is a test notification from idle-detector."
         message = terminal_notifier_kwargs.pop("message", test_message)
-        msg_command = (NotifierFlags.MESSAGE.flag, encode_message(message))
+        msg_command = (NotifierFlags.MESSAGE.flag, encode_string(message))
         arg_commands = (
             # --flag <value>
             (NotifierFlags[k.upper()].flag, str(v))
@@ -107,7 +107,7 @@ class TerminalNotifier:
 
     @cached_property
     def assets_path(self):
-        return get_project_path("idle_detector/assets")
+        return get_project_path("assets")
 
     @cached_property
     def terminal_notifier_bin(self):

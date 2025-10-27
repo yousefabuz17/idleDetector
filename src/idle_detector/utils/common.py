@@ -27,6 +27,8 @@ NULL_INFINITY = Decimal("inf")
 # This is used to manage the state of the idle detection process.
 IDLE_DETECTOR_RUN = False
 
+PAUSE_DETECTION_TIMER = 0.1
+
 PROJECT = "idleDetector"
 
 
@@ -78,14 +80,24 @@ def regex_findall(pattern: str, string: str):
     return regex_compiler(pattern).findall(string)
 
 
-def encode_message(message):
-    """
-    Encode a message to UTF-8 bytes if possible.
-    Used for subprocess-safe string transmission and file IO consistency.
-    """
-    if hasattr(message, "encode") and callable(getattr(message, "encode", None)):
-        message = message.encode("utf-8")
+def transform_encoding(message, decode: bool = False):
+    method = "decode" if decode else "encode"
+    str_func = getattr(message, method, None)
+    if callable(str_func):
+        return str_func("utf-8")
     return message
+
+
+def encode_string(message):
+    return transform_encoding(message)
+
+
+def decode_string(message):
+    return transform_encoding(message, decode=True)
+
+
+def reverse_sort(items):
+    return sorted(items, reverse=True)
 
 
 def to_seconds(seconds):
@@ -111,11 +123,7 @@ async def run_in_thread(func: Callable[..., Any], *args, **kwargs) -> Any:
     event loop is not blocked.
     """
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
-
-
-def reverse_sort(items):
-    return sorted(items, reverse=True)
+    return await loop.run_in_executor(None, func, *args, **kwargs)
 
 
 async def run_async_process(cmd, **kwargs):

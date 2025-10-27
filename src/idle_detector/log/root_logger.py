@@ -3,7 +3,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from ..models.machine import MacOS
-from ..utils.common import PROJECT, PathLike
+from ..utils.common import PathLike
 from ..utils.os_modules import rename, rm_file
 
 Logger = logging.Logger
@@ -78,13 +78,6 @@ async def get_logger(stream_only: bool = False, include_timestamp: bool = True):
     When stream_only=True: logs only to console
     When stream_only=False: logs to both console and file
     """
-    mac_machine = MacOS(f"{PROJECT}.log", ensure_exists=True)
-    await mac_machine.check_machine()
-
-    DEFAULT_LOG_FILE = mac_machine.user_log_dir
-    MAX_LOG_SIZE = 10_000_000  # 10 MB
-    MAX_LOG_FILES = 5
-
     root_logger = logging.getLogger()
 
     if root_logger.hasHandlers():
@@ -104,12 +97,18 @@ async def get_logger(stream_only: bool = False, include_timestamp: bool = True):
     root_logger.addHandler(stream_handler)
 
     if not stream_only:
+        mac_machine = MacOS()
+        await mac_machine.check_machine()
+
+        default_log_file = mac_machine.log_files().log_file
+        max_log_size = 10_000_000  # 10 MB
+        max_log_files = 5
         file_handler = RotateLogHandler(
-            DEFAULT_LOG_FILE,
+            default_log_file,
             mode="a",
             encoding="utf-8",
-            maxBytes=MAX_LOG_SIZE,
-            backupCount=MAX_LOG_FILES,
+            maxBytes=max_log_size,
+            backupCount=max_log_files,
         )
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)

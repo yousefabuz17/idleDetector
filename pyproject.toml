@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "idle_detector"
-version = "0.0.5"
+version = "1.0.0"
 authors = [
     { name = "Yousef Abuzahrieh", email = "yousefzahrieh17@gmail.com" }
 ]
@@ -39,7 +39,7 @@ Homepage = "https://github.com/yousefabuz17/idleDetector"
 Download = "https://github.com/yousefabuz17/idleDetector.git"
 
 [project.scripts]
-idle-detector = "idle_detector.cli:cli_parser"
+idle-detector = "idle_detector.__main__:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -51,6 +51,9 @@ idle_detector = { path = "src" }
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+idle_detector = ["assets/*"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py313"
@@ -58,8 +61,6 @@ exclude = [
     "build",
     "dist",
     ".venv",
-    ".uv",
-    ".git",
     "**/**pycache**"
 ]
 include = ["src/idle_detector"]

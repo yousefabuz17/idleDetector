@@ -1,23 +1,26 @@
 PY_FILES := $(wildcard src/**/**/*.py)
 
 format:
-	ruff format $(PY_FILES)
+	uv run ruff format $(PY_FILES)
 
 lint:
-	ruff check $(PY_FILES)
+	uv run ruff check $(PY_FILES)
 
 fix:
-	ruff check $(PY_FILES) --fix
+	uv run ruff check $(PY_FILES) --fix
 
 unsafe-fix:
-	ruff check --fix --unsafe-fixes $(PY_FILES)
+	uv run ruff check --fix --unsafe-fixes $(PY_FILES)
+
+cache-clean:
+	uv cache clean
 
 uv_lint:
 	uv run --with=ruff ruff check . --fix
 	uv run --with=black black .
 
 ruff_version:
-	ruff --version
+	uv run ruff --version
 
 install_ruff:
 	uv pip install ruff
